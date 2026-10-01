@@ -1,0 +1,13 @@
+# Single Worker deployment (what runs at aegisly.<subdomain>.workers.dev).
+# Build first: node build.mjs  → dist/worker.js (static assets + API in one module)
+name = "aegisly"
+main = "dist/worker.js"
+compatibility_date = "2026-09-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "aegisly"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+
+[ai]
+binding = "AI"
