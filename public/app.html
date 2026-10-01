@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aegisly — Dashboard</title>
+<link rel="stylesheet" href="/style.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2 4 7v8c0 7.5 5.1 13.4 12 15 6.9-1.6 12-7.5 12-15V7z' fill='%235b8cff'/%3E%3C/svg%3E">
+</head>
+<body>
+<header class="top"><div class="wrap" style="max-width:none">
+  <a class="logo" href="/"><svg viewBox="0 0 32 32"><defs><linearGradient id="g" x1="0" x2="1"><stop offset="0" stop-color="#5b8cff"/><stop offset="1" stop-color="#8a6bff"/></linearGradient></defs><path d="M16 2 4 7v8c0 7.5 5.1 13.4 12 15 6.9-1.6 12-7.5 12-15V7z" fill="url(#g)"/><path d="m11 16 3.5 3.5L21.5 12" stroke="#fff" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>Aegisly</a>
+  <nav><span id="wsName" class="mono" style="color:var(--muted)"></span><a href="/docs.html">API docs</a><a href="#" id="logout">Sign out</a></nav>
+</div></header>
+
+<div id="login" class="wrap hidden" style="max-width:520px;padding-top:60px">
+  <div class="card">
+    <h3>Sign in with your admin key</h3>
+    <p>Paste the <code>agy_admin_…</code> key you received when creating the workspace, or open a sandbox.</p>
+    <label for="keyIn">Admin key</label><input id="keyIn" class="mono" placeholder="agy_admin_…">
+    <div class="row" style="margin-top:16px"><button class="btn primary" id="loginBtn">Sign in</button><a class="btn" href="/">Back to site</a></div>
+  </div>
+</div>
+
+<div id="shell" class="app hidden">
+  <aside class="side">
+    <button data-tab="overview" class="active">Overview</button>
+    <button data-tab="playground">Playground</button>
+    <button data-tab="policy">Policy</button>
+    <button data-tab="keys">API keys</button>
+    <button data-tab="audit">Audit log</button>
+    <button data-tab="billing">Plan &amp; billing</button>
+  </aside>
+  <div class="main">
+    <div id="keysNotice" class="notice warn hidden"></div>
+
+    <div data-pane="overview">
+      <h2>Overview</h2><p class="sub" id="ovSub"></p>
+      <div class="grid g4" id="stats"></div>
+      <div class="card" style="margin-top:16px"><h3>Plan usage</h3><p id="quotaTxt"></p><div class="bar"><i id="quotaBar" style="width:0"></i></div></div>
+      <div class="card" style="margin-top:16px"><h3>Latest activity</h3><div class="tablewrap"><table id="ovAudit"></table></div></div>
+    </div>
+
+    <div data-pane="playground" class="hidden">
+      <h2>Playground</h2><p class="sub">Send a real request through the gateway with your member key. See exactly what reaches the model.</p>
+      <div class="card">
+        <label for="pgText">Prompt</label>
+        <textarea id="pgText">Summarize this ticket: Jane Roe (jane.roe@acme.io, +1 415 555 0132) says her card 4242 4242 4242 4242 was charged twice.</textarea>
+        <div class="row" style="margin-top:12px">
+          <select id="pgModel" style="width:auto"></select>
+          <button class="btn" id="pgScan">Dry-run policy</button>
+          <button class="btn primary" id="pgSend">Send through gateway</button>
+        </div>
+        <div class="row" style="margin-top:10px;gap:6px">
+          <span style="color:var(--muted);font-size:13px">Try:</span>
+          <button class="btn small" data-ex="Debug: new Client('sk-live-9fA8b7C6d5E4f3G2h1J0kLmNoPqRs') returns 401">leaked API key</button>
+          <button class="btn small" data-ex="Cliente CPF 529.982.247-25 pediu segunda via do boleto. Escreva a resposta.">Brazilian CPF</button>
+          <button class="btn small" data-ex="Write a three-line welcome message for new employees.">clean prompt</button>
+        </div>
+      </div>
+      <div class="grid g3" style="margin-top:16px">
+        <div class="card"><h3>Decision</h3><div id="pgDecision" class="out">—</div></div>
+        <div class="card"><h3>Sent to model</h3><div id="pgSent" class="out">—</div></div>
+        <div class="card"><h3>Response</h3><div id="pgResp" class="out">—</div></div>
+      </div>
+    </div>
+
+    <div data-pane="policy" class="hidden">
+      <h2>Policy</h2><p class="sub">Applies to every request in this workspace, immediately.</p>
+      <div class="card" style="max-width:640px">
+        <label for="poPii">Personal data (emails, phones, cards, SSN, CPF, IBAN, IPs)</label>
+        <select id="poPii"><option value="redact">Redact before sending</option><option value="block">Block the request</option><option value="off">Allow (log only)</option></select>
+        <label for="poSec">Secrets (API keys, tokens, private keys)</label>
+        <select id="poSec"><option value="block">Block the request</option><option value="redact">Redact before sending</option><option value="off">Allow (log only)</option></select>
+        <label for="poTerms">Blocked terms (one per line, case-insensitive)</label>
+        <textarea id="poTerms" style="min-height:90px" placeholder="project falcon&#10;merger"></textarea>
+        <label for="poMax">Max prompt characters</label><input id="poMax" type="number" min="100" max="100000">
+        <label><input type="checkbox" id="poOut" style="width:auto"> Scan and redact model output too</label>
+        <div class="row" style="margin-top:16px"><button class="btn primary" id="poSave">Save policy</button></div>
+      </div>
+    </div>
+
+    <div data-pane="keys" class="hidden">
+      <h2>API keys</h2><p class="sub">One key per app or team. Keys are shown once and stored only as SHA-256 hashes.</p>
+      <div class="card" style="margin-bottom:16px">
+        <div class="row">
+          <input id="kLabel" placeholder="Label, e.g. Support bot" style="flex:2;min-width:180px">
+          <input id="kBudget" type="number" min="0" step="1" placeholder="Monthly budget USD (optional)" style="flex:1;min-width:160px">
+          <button class="btn primary" id="kAdd">Create key</button>
+        </div>
+      </div>
+      <div class="card tablewrap"><table id="kTable"></table></div>
+    </div>
+
+    <div data-pane="audit" class="hidden">
+      <h2>Audit log</h2><p class="sub">Hash-chained: altering or deleting any entry breaks verification. Prompts are stored only as SHA-256.</p>
+      <div class="row" style="margin-bottom:14px"><button class="btn" id="auVerify">Verify chain integrity</button><button class="btn" id="auCsv">Export CSV</button><span id="auResult" class="mono"></span></div>
+      <div class="card tablewrap"><table id="auTable"></table></div>
+    </div>
+
+    <div data-pane="billing" class="hidden">
+      <h2>Plan &amp; billing</h2><p class="sub" id="biSub"></p>
+      <div class="grid g3" id="biPlans"></div>
+    </div>
+  </div>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>

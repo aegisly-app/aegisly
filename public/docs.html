@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aegisly — API docs</title>
+<link rel="stylesheet" href="/style.css">
+<style>.doc h3{margin-top:28px} .doc pre{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;overflow-x:auto} .doc td,.doc th{font-size:13px}</style>
+</head>
+<body>
+<header class="top"><div class="wrap">
+  <a class="logo" href="/">Aegisly</a>
+  <nav><a href="/#pricing">Pricing</a><a href="/app.html">Dashboard</a></nav>
+</div></header>
+<main class="wrap doc" style="padding:30px 20px 60px;max-width:860px">
+<h2>API reference</h2>
+<p class="lead" style="color:var(--muted)">All endpoints are JSON over HTTPS. Authenticate with <code>Authorization: Bearer &lt;key&gt;</code>. Member keys (<code>agy_live_…</code>) call the gateway; admin keys (<code>agy_admin_…</code>) manage the workspace.</p>
+
+<h3>Gateway — POST /api/v1/chat</h3>
+<pre>curl https://YOUR-DEPLOYMENT/api/v1/chat \
+  -H "Authorization: Bearer agy_live_..." \
+  -H "Content-Type: application/json" \
+  -d '{"model":"@cf/meta/llama-3.2-3b-instruct",
+       "messages":[{"role":"user","content":"Reply to jane@acme.io about her refund"}]}'</pre>
+<p>200 response (redacted request):</p>
+<pre>{
+  "decision": "redact",
+  "reasons": ["sensitive_data_redacted"],
+  "findings": { "input": { "EMAIL": 1 }, "output": {} },
+  "sent_to_model": [{ "role": "user", "content": "Reply to [EMAIL_1] about her refund" }],
+  "choices": [{ "index": 0, "message": { "role": "assistant", "content": "..." } }],
+  "usage": { "estimated_tokens": 61, "estimated_cost_usd": 0.000024 },
+  "audit": { "seq": 42, "hash": "9c1f..." }
+}</pre>
+<p>Blocked requests return <b>403</b> with <code>error.code = "policy_violation"</code> and the reasons. Every request, allowed or not, gets an audit entry. Response headers: <code>x-aegisly-decision</code>, <code>x-aegisly-audit-seq</code>.</p>
+<table>
+<tr><th>Status</th><th>Code</th><th>Meaning</th></tr>
+<tr><td>401</td><td>unauthorized</td><td>Missing, invalid or revoked key</td></tr>
+<tr><td>403</td><td>policy_violation</td><td>Blocked term, secret/PII in block mode, model not allowed, prompt too long</td></tr>
+<tr><td>429</td><td>plan_quota_exceeded / key_budget_exceeded</td><td>Monthly plan quota or per-key budget reached</td></tr>
+</table>
+
+<h3>Workspace (admin key)</h3>
+<table>
+<tr><th>Method</th><th>Path</th><th>Description</th></tr>
+<tr><td>POST</td><td>/api/signup</td><td>Create workspace <code>{workspace, email}</code> → admin + member keys (no auth)</td></tr>
+<tr><td>GET</td><td>/api/me</td><td>Workspace, plan, policy, month usage</td></tr>
+<tr><td>PUT</td><td>/api/policy</td><td><code>{piiMode, secretsMode, blockedTerms[], maxPromptChars, allowedModels[], scanOutput}</code></td></tr>
+<tr><td>POST</td><td>/api/scan</td><td>Dry-run the policy on <code>{text}</code> without calling a model</td></tr>
+<tr><td>GET / POST</td><td>/api/keys</td><td>List keys with usage / create <code>{label, monthly_budget_usd?}</code></td></tr>
+<tr><td>DELETE</td><td>/api/keys/:id</td><td>Revoke a key</td></tr>
+<tr><td>GET</td><td>/api/audit?limit=50</td><td>Latest audit entries</td></tr>
+<tr><td>GET</td><td>/api/audit/verify</td><td>Recompute the hash chain → <code>{valid, checked, head}</code></td></tr>
+<tr><td>GET</td><td>/api/audit/export.csv</td><td>Full audit export</td></tr>
+<tr><td>POST</td><td>/api/billing/checkout</td><td><code>{plan}</code> → Stripe Checkout URL (or sandbox switch when Stripe is not configured)</td></tr>
+</table>
+
+<h3>Detectors</h3>
+<p>PII: EMAIL, PHONE, CREDIT_CARD (Luhn-validated), US_SSN, BR_CPF (check digits validated), IBAN, IP_ADDRESS. Secrets: AWS_ACCESS_KEY, API_KEY (sk-/pk-/rk- style), GITHUB_TOKEN, JWT, PRIVATE_KEY.</p>
+<p>Detection is pattern-based and deterministic: fast and auditable, but not a guarantee. Names and free-text identifiers are not detected in this version.</p>
+</main>
+</body>
+</html>
