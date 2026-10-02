@@ -7,7 +7,7 @@ import {
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' };
 const json = (data, status = 200, extra = {}) => new Response(JSON.stringify(data), { status, headers: { ...JSON_HEADERS, ...extra } });
 const err = (status, code, message) => json({ error: { code, message } }, status);
-const nowIso = () => new Date().toISOString();
+const nowIso = () => new Date(Date.now()).toISOString();
 const uid = (p) => `${p}_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
 
 async function readJson(request) {
@@ -36,6 +36,16 @@ async function createKey(env, workspaceId, label, role, budget) {
   return { id, token };
 }
 
+// Retention by plan: delete audit rows older than the plan's window (never the newest row).
+// The chain stays verifiable: the verifier anchors on the oldest remaining row's prev_hash.
+async function pruneAudit(env, workspaceId, headSeq) {
+  try {
+    const ws = await env.DB.prepare('SELECT plan FROM workspaces WHERE id = ?').bind(workspaceId).first();
+    const days = (PLANS[ws?.plan] || PLANS.free).retentionDays;
+    const cutoff = new Date(Date.now() - days * 86400000).toISOString();
+    await env.DB.prepare('DELETE FROM audit_log WHERE workspace_id = ? AND ts < ? AND seq < ?').bind(workspaceId, cutoff, headSeq).run();
+  } catch (e) { /* retention is best-effort */ }
+}
 async function appendAudit(env, rec) {
   for (let attempt = 0; attempt < 5; attempt++) {
     const last = await env.DB.prepare('SELECT seq, hash FROM audit_log WHERE workspace_id = ? ORDER BY seq DESC LIMIT 1')
@@ -47,6 +57,7 @@ async function appendAudit(env, rec) {
         'INSERT INTO audit_log (workspace_id, seq, ts, key_id, model, decision, reasons, findings, prompt_hash, tokens, cost_usd, latency_ms, prev_hash, hash) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
       ).bind(row.workspace_id, row.seq, row.ts, row.key_id, row.model, row.decision, row.reasons, row.findings,
         row.prompt_hash, row.tokens, row.cost_usd, row.latency_ms, row.prev_hash, row.hash).run();
+      if (row.seq % 20 === 0) await pruneAudit(env, row.workspace_id, row.seq);
       return row;
     } catch (e) {
       if (!/UNIQUE|PRIMARY|constraint/i.test(String(e?.message))) throw e;
@@ -285,7 +296,9 @@ async function verifyAudit(request, env) {
   const a = await authenticate(request, env, ['admin']);
   if (a.error) return a.error;
   const { results } = await env.DB.prepare('SELECT * FROM audit_log WHERE workspace_id = ? ORDER BY seq').bind(a.key.workspace_id).all();
-  let prev = 'GENESIS';
+  // After retention pruning the chain starts mid-way: anchor on the oldest remaining row.
+  let prev = results.length && results[0].seq > 1 ? results[0].prev_hash : 'GENESIS';
+  const prunedBefore = results.length && results[0].seq > 1 ? results[0].seq : null;
   for (const r of results) {
     const expected = await sha256Hex(auditCanonical({ ...r, prev_hash: prev }));
     if (r.prev_hash !== prev || r.hash !== expected) {
@@ -293,7 +306,7 @@ async function verifyAudit(request, env) {
     }
     prev = r.hash;
   }
-  return json({ valid: true, checked: results.length, head: prev });
+  return json({ valid: true, checked: results.length, head: prev, ...(prunedBefore ? { pruned_before_seq: prunedBefore } : {}) });
 }
 
 async function checkout(request, env, url) {
@@ -353,6 +366,14 @@ async function stripeWebhook(request, env) {
   return json({ received: true });
 }
 
+// Global cap on workspace creation (signup + demo): 40 per hour, protects the free D1 quota.
+async function createCapReached(env, limit = 40, windowMin = 60) {
+  const since = new Date(Date.now() - windowMin * 60000).toISOString();
+  const r = await env.DB.prepare('SELECT COUNT(*) AS n FROM workspaces WHERE created_at > ?').bind(since).first();
+  return (r?.n || 0) >= limit;
+}
+const capErr = () => json({ error: { code: 'rate_limited', message: 'Too many new workspaces right now. Try again in a few minutes.' } }, 429, { 'retry-after': '300' });
+
 export async function handleApi(request, env) {
   const url = new URL(request.url);
   const path = url.pathname.replace(/\/+$/, '');
@@ -361,8 +382,8 @@ export async function handleApi(request, env) {
     if (m === 'OPTIONS') return new Response(null, { status: 204, headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'authorization, content-type', 'access-control-allow-methods': 'GET, POST, PUT, DELETE' } });
     if (path === '/api/health') return await json({ ok: true, ai: !!env.AI, db: !!env.DB, ts: nowIso() });
     if (path === '/api/plans' && m === 'GET') return await json({ plans: PLANS, models: MODELS });
-    if (path === '/api/signup' && m === 'POST') return await signup(request, env);
-    if (path === '/api/demo' && m === 'POST') return await createDemo(request, env);
+    if (path === '/api/signup' && m === 'POST') { if (await createCapReached(env)) return capErr(); return await signup(request, env); }
+    if (path === '/api/demo' && m === 'POST') { if (await createCapReached(env)) return capErr(); return await createDemo(request, env); }
     if (path === '/api/v1/chat' && m === 'POST') return await chat(request, env);
     if (path === '/api/me' && m === 'GET') return await me(request, env);
     if (path === '/api/policy' && m === 'PUT') return await updatePolicy(request, env);
