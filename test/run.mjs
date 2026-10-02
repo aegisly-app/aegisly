@@ -101,4 +101,24 @@ await t('demo workspace seeds traffic through the real pipeline', async () => {
   assert.ok(a.body.entries.some((e) => e.decision === 'block') && a.body.entries.some((e) => e.decision === 'redact'));
   assert.equal((await call('GET', '/api/audit/verify', d.body.admin_key)).body.valid, true);
 });
+await t('retention prunes old audit rows and the chain still verifies', async () => {
+  const w = await call('POST', '/api/signup', null, { workspace: 'Retention Co', email: 'r@x.io' });
+  const chat = () => call('POST', '/api/v1/chat', w.body.member_key, { messages: [{ role: 'user', content: 'hello there' }] });
+  const realNow = Date.now;
+  Date.now = () => realNow() - 10 * 86400000; // Free plan keeps 7 days
+  for (let i = 0; i < 5; i++) assert.equal((await chat()).status, 200);
+  Date.now = realNow;
+  for (let i = 0; i < 15; i++) assert.equal((await chat()).status, 200); // seq 20 triggers pruning
+  const a = await call('GET', '/api/audit', w.body.admin_key);
+  assert.equal(a.body.entries.length, 15);
+  const v = await call('GET', '/api/audit/verify', w.body.admin_key);
+  assert.equal(v.body.valid, true);
+  assert.equal(v.body.pruned_before_seq, 6);
+});
+await t('workspace creation is capped (429 after 40/hour)', async () => {
+  let last;
+  for (let i = 0; i < 45; i++) { last = await call('POST', '/api/signup', null, { workspace: `W${i}`, email: `w${i}@x.io` }); if (last.status === 429) break; }
+  assert.equal(last.status, 429);
+  assert.equal((await call('POST', '/api/demo')).status, 429);
+});
 console.log(`\n${passed} tests passed`);
