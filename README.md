@@ -101,7 +101,7 @@ See [`schema.sql`](schema.sql). Main tables:
 Requirements: Node.js ≥ 22.5 (uses the built-in `node:sqlite` for a local D1 shim). No `npm install` is needed.
 
 ```bash
-node --no-warnings test/run.mjs        # 14 end-to-end tests (core + API)
+node --no-warnings test/run.mjs        # 16 end-to-end tests (core + API)
 node --no-warnings test/devserver.mjs  # http://localhost:8788 (model responses are simulated without Workers AI)
 ```
 
